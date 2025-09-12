@@ -1,0 +1,565 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Juego Multijugador con Joystick</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            touch-action: manipulation;
+        }
+        
+        body {
+            background-color: #222;
+            font-family: 'Arial', sans-serif;
+            overflow: hidden;
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            color: white;
+        }
+        
+        #game-container {
+            position: relative;
+            width: 100%;
+            max-width: 800px;
+            height: 100vh;
+            max-height: 600px;
+            overflow: hidden;
+            border: 2px solid #444;
+        }
+        
+        #game-canvas {
+            background-color: #333;
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+        
+        #ui-container {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            top: 0;
+            left: 0;
+            pointer-events: none;
+        }
+        
+        #instructions {
+            position: absolute;
+            top: 10px;
+            left: 0;
+            right: 0;
+            text-align: center;
+            background-color: rgba(0, 0, 0, 0.6);
+            padding: 10px;
+            border-radius: 0 0 10px 10px;
+            font-size: 14px;
+            pointer-events: none;
+        }
+        
+        #score {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background-color: rgba(0, 0, 0, 0.6);
+            padding: 8px 12px;
+            border-radius: 20px;
+            font-size: 16px;
+            pointer-events: none;
+        }
+        
+        #connection-status {
+            position: absolute;
+            top: 50px;
+            left: 10px;
+            background-color: rgba(0, 0, 0, 0.6);
+            padding: 8px 12px;
+            border-radius: 20px;
+            font-size: 14px;
+            pointer-events: none;
+        }
+        
+        #players-list {
+            position: absolute;
+            top: 90px;
+            left: 10px;
+            background-color: rgba(0, 0, 0, 0.6);
+            padding: 8px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            pointer-events: none;
+            max-width: 200px;
+        }
+        
+        #joystick-container {
+            position: absolute;
+            left: 30px;
+            bottom: 30px;
+            width: 120px;
+            height: 120px;
+            pointer-events: auto;
+        }
+        
+        #joystick-base {
+            width: 100%;
+            height: 100%;
+            border-radius: 50%;
+            background-color: rgba(0, 0, 0, 0.3);
+            border: 2px solid rgba(255, 255, 255, 0.5);
+            position: absolute;
+        }
+        
+        #joystick-handle {
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            background-color: rgba(255, 165, 0, 0.7);
+            position: absolute;
+            top: 35px;
+            left: 35px;
+            transition: transform 0.1s;
+        }
+        
+        #action-btn {
+            position: absolute;
+            right: 30px;
+            bottom: 30px;
+            width: 80px;
+            height: 80px;
+            border-radius: 50%;
+            background-color: rgba(255, 50, 50, 0.6);
+            border: 2px solid rgba(255, 255, 255, 0.7);
+            color: white;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 20px;
+            pointer-events: auto;
+            user-select: none;
+        }
+        
+        #action-btn:active {
+            background-color: rgba(255, 100, 100, 0.8);
+            transform: scale(0.95);
+        }
+        
+        @media (max-width: 600px) {
+            #joystick-container {
+                left: 20px;
+                bottom: 20px;
+                width: 100px;
+                height: 100px;
+            }
+            
+            #joystick-handle {
+                width: 40px;
+                height: 40px;
+                top: 30px;
+                left: 30px;
+            }
+            
+            #action-btn {
+                right: 20px;
+                bottom: 20px;
+                width: 70px;
+                height: 70px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div id="game-container">
+        <canvas id="game-canvas"></canvas>
+        
+        <div id="ui-container">
+            <div id="instructions">
+                Juego Multijugador - Usa el joystick para moverte
+            </div>
+            
+            <div id="score">Puntos: 0</div>
+            <div id="connection-status">Conectando al servidor...</div>
+            <div id="players-list">Jugadores: 1</div>
+            
+            <div id="joystick-container">
+                <div id="joystick-base"></div>
+                <div id="joystick-handle"></div>
+            </div>
+            
+            <div id="action-btn">A</div>
+        </div>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+        // Configuración del juego
+        const canvas = document.getElementById('game-canvas');
+        const ctx = canvas.getContext('2d');
+        const joystickContainer = document.getElementById('joystick-container');
+        const joystickHandle = document.getElementById('joystick-handle');
+        const joystickBase = document.getElementById('joystick-base');
+        const connectionStatus = document.getElementById('connection-status');
+        const playersList = document.getElementById('players-list');
+        const scoreElement = document.getElementById('score');
+        
+        // Ajustar tamaño del canvas
+        function resizeCanvas() {
+            const container = document.getElementById('game-container');
+            canvas.width = container.clientWidth;
+            canvas.height = container.clientHeight;
+        }
+        
+        // Inicializar tamaño del canvas
+        resizeCanvas();
+        window.addEventListener('resize', resizeCanvas);
+        
+        // Tamaño del mundo (más grande que el canvas para tener espacio para explorar)
+        const worldWidth = 2000;
+        const worldHeight = 2000;
+        
+        // Jugador local
+        const player = {
+            x: worldWidth / 2,
+            y: worldHeight / 2,
+            size: 20,
+            speed: 4,
+            color: 'orange',
+            score: 0
+        };
+        
+        // Conexión Socket.IO
+        const socket = io();
+        let networkPlayers = {};
+        
+        // Eventos de Socket.IO
+        socket.on('connect', () => {
+            console.log('Conectado al servidor con ID:', socket.id);
+            connectionStatus.textContent = "Conectado al servidor";
+            connectionStatus.style.color = 'lightgreen';
+        });
+        
+        socket.on('currentPlayers', (players) => {
+            console.log('Jugadores actuales:', players);
+            networkPlayers = players;
+            updatePlayersList();
+        });
+        
+        socket.on('newPlayer', (playerData) => {
+            console.log('Nuevo jugador:', playerData.id);
+            networkPlayers[playerData.id] = playerData;
+            updatePlayersList();
+        });
+        
+        socket.on('playerMoved', (data) => {
+            if (networkPlayers[data.id]) {
+                networkPlayers[data.id].x = data.x;
+                networkPlayers[data.id].y = data.y;
+            }
+        });
+        
+        socket.on('playerDisconnected', (id) => {
+            console.log('Jugador desconectado:', id);
+            delete networkPlayers[id];
+            updatePlayersList();
+        });
+        
+        function updatePlayersList() {
+            const totalPlayers = Object.keys(networkPlayers).length;
+            playersList.textContent = "Jugadores: " + totalPlayers;
+            
+            // Mostrar información de jugadores
+            let playersInfo = '';
+            playersInfo += `Tú: ${player.score} pts\n`;
+            
+            Object.keys(networkPlayers).forEach((id) => {
+                if (id !== socket.id) {
+                    playersInfo += `Jugador ${id.substring(0, 5)}: ${networkPlayers[id].score} pts\n`;
+                }
+            });
+            
+            playersList.title = playersInfo;
+        }
+        
+        // Obstáculos y elementos del mundo
+        const obstacles = [];
+        const items = [];
+        
+        // Generar obstáculos aleatorios
+        for (let i = 0; i < 40; i++) {
+            obstacles.push({
+                x: Math.random() * worldWidth,
+                y: Math.random() * worldHeight,
+                width: 30 + Math.random() * 70,
+                height: 30 + Math.random() * 70,
+                color: `rgb(${100 + Math.random() * 100}, ${100 + Math.random() * 100}, ${100 + Math.random() * 100})`
+            });
+        }
+        
+        // Generar items coleccionables
+        for (let i = 0; i < 25; i++) {
+            items.push({
+                x: Math.random() * worldWidth,
+                y: Math.random() * worldHeight,
+                size: 12,
+                color: 'yellow',
+                collected: false
+            });
+        }
+        
+        // Joystick
+        let joystickActive = false;
+        const joystick = {
+            baseX: 0,
+            baseY: 0,
+            handleX: 0,
+            handleY: 0,
+            maxDistance: 35,
+            direction: { x: 0, y: 0 }
+        };
+        
+        // Configurar el joystick
+        function setupJoystick() {
+            const rect = joystickBase.getBoundingClientRect();
+            joystick.baseX = rect.left + rect.width / 2;
+            joystick.baseY = rect.top + rect.height / 2;
+            joystick.handleX = joystick.baseX;
+            joystick.handleY = joystick.baseY;
+        }
+        
+        // Actualizar posición del joystick
+        function updateJoystickPosition(clientX, clientY) {
+            const dx = clientX - joystick.baseX;
+            const dy = clientY - joystick.baseY;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            const angle = Math.atan2(dy, dx);
+            
+            if (distance > joystick.maxDistance) {
+                joystick.handleX = joystick.baseX + Math.cos(angle) * joystick.maxDistance;
+                joystick.handleY = joystick.baseY + Math.sin(angle) * joystick.maxDistance;
+            } else {
+                joystick.handleX = clientX;
+                joystick.handleY = clientY;
+            }
+            
+            // Calcular dirección normalizada
+            joystick.direction.x = (joystick.handleX - joystick.baseX) / joystick.maxDistance;
+            joystick.direction.y = (joystick.handleY - joystick.baseY) / joystick.maxDistance;
+            
+            // Actualizar posición visual del handle
+            const handleRect = joystickHandle.getBoundingClientRect();
+            const baseRect = joystickBase.getBoundingClientRect();
+            const relativeX = joystick.handleX - baseRect.left - handleRect.width / 2;
+            const relativeY = joystick.handleY - baseRect.top - handleRect.height / 2;
+            
+            joystickHandle.style.transform = `translate(${relativeX}px, ${relativeY}px)`;
+        }
+        
+        // Resetear joystick
+        function resetJoystick() {
+            joystick.direction = { x: 0, y: 0 };
+            const baseRect = joystickBase.getBoundingClientRect();
+            const handleRect = joystickHandle.getBoundingClientRect();
+            const relativeX = (baseRect.width - handleRect.width) / 2;
+            const relativeY = (baseRect.height - handleRect.height) / 2;
+            
+            joystickHandle.style.transform = `translate(${relativeX}px, ${relativeY}px)`;
+        }
+        
+        // Eventos táctiles para el joystick
+        joystickContainer.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            joystickActive = true;
+            setupJoystick();
+            updateJoystickPosition(e.touches[0].clientX, e.touches[0].clientY);
+        });
+        
+        document.addEventListener('touchmove', (e) => {
+            if (joystickActive) {
+                e.preventDefault();
+                updateJoystickPosition(e.touches[0].clientX, e.touches[0].clientY);
+            }
+        });
+        
+        document.addEventListener('touchend', () => {
+            if (joystickActive) {
+                joystickActive = false;
+                resetJoystick();
+            }
+        });
+        
+        // También soporte para mouse (útil para probar en escritorio)
+        joystickContainer.addEventListener('mousedown', (e) => {
+            joystickActive = true;
+            setupJoystick();
+            updateJoystickPosition(e.clientX, e.clientY);
+        });
+        
+        document.addEventListener('mousemove', (e) => {
+            if (joystickActive) {
+                updateJoystickPosition(e.clientX, e.clientY);
+            }
+        });
+        
+        document.addEventListener('mouseup', () => {
+            if (joystickActive) {
+                joystickActive = false;
+                resetJoystick();
+            }
+        });
+        
+        // Función de actualización del juego
+        function update() {
+            // Movimiento del jugador basado en el joystick
+            player.x += joystick.direction.x * player.speed;
+            player.y += joystick.direction.y * player.speed;
+            
+            // Limitar al jugador dentro del mundo
+            player.x = Math.max(player.size / 2, Math.min(worldWidth - player.size / 2, player.x));
+            player.y = Math.max(player.size / 2, Math.min(worldHeight - player.size / 2, player.y));
+            
+            // Enviar posición al servidor
+            socket.emit('playerMovement', { x: player.x, y: player.y });
+            
+            // Verificar colisión con items
+            items.forEach(item => {
+                if (!item.collected) {
+                    const dx = player.x - item.x;
+                    const dy = player.y - item.y;
+                    const distance = Math.sqrt(dx * dx + dy * dy);
+                    
+                    if (distance < player.size / 2 + item.size / 2) {
+                        item.collected = true;
+                        player.score += 10;
+                        scoreElement.textContent = `Puntos: ${player.score}`;
+                    }
+                }
+            });
+        }
+        
+        // Función de dibujado
+        function draw() {
+            // Limpiar canvas
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // Calcular la vista de la cámara (centrada en el jugador)
+            const cameraX = player.x - canvas.width / 2;
+            const cameraY = player.y - canvas.height / 2;
+            
+            // Dibujar obstáculos visibles
+            obstacles.forEach(obstacle => {
+                // Solo dibujar si está en la vista de la cámara
+                if (obstacle.x + obstacle.width > cameraX && 
+                    obstacle.x < cameraX + canvas.width &&
+                    obstacle.y + obstacle.height > cameraY && 
+                    obstacle.y < cameraY + canvas.height) {
+                    
+                    ctx.fillStyle = obstacle.color;
+                    ctx.fillRect(
+                        obstacle.x - cameraX, 
+                        obstacle.y - cameraY, 
+                        obstacle.width, 
+                        obstacle.height
+                    );
+                }
+            });
+            
+            // Dibujar items visibles
+            items.forEach(item => {
+                if (!item.collected) {
+                    // Solo dibujar si está en la vista de la cámara
+                    if (item.x + item.size > cameraX && 
+                        item.x < cameraX + canvas.width &&
+                        item.y + item.size > cameraY && 
+                        item.y < cameraY + canvas.height) {
+                        
+                        ctx.fillStyle = item.color;
+                        ctx.beginPath();
+                        ctx.arc(
+                            item.x - cameraX, 
+                            item.y - cameraY, 
+                            item.size, 
+                            0, 
+                            Math.PI * 2
+                        );
+                        ctx.fill();
+                    }
+                }
+            });
+            
+            // Dibujar otros jugadores
+            Object.keys(networkPlayers).forEach(id => {
+                if (id !== socket.id) {
+                    const np = networkPlayers[id];
+                    ctx.fillStyle = np.color;
+                    ctx.fillRect(
+                        np.x - cameraX - np.size / 2,
+                        np.y - cameraY - np.size / 2,
+                        np.size,
+                        np.size
+                    );
+                    
+                    // Dibujar nombre del jugador
+                    ctx.fillStyle = 'white';
+                    ctx.font = '12px Arial';
+                    ctx.fillText(
+                        `Jugador ${id.substring(0, 5)}: ${np.score}`,
+                        np.x - cameraX - np.size / 2,
+                        np.y - cameraY - np.size - 5
+                    );
+                }
+            });
+            
+            // Dibujar jugador local (siempre en el centro de la pantalla)
+            ctx.fillStyle = player.color;
+            ctx.fillRect(
+                canvas.width / 2 - player.size / 2,
+                canvas.height / 2 - player.size / 2,
+                player.size,
+                player.size
+            );
+            
+            // Dibujar nombre del jugador local
+            ctx.fillStyle = 'white';
+            ctx.font = '12px Arial';
+            ctx.fillText(
+                `Tú: ${player.score}`,
+                canvas.width / 2 - player.size / 2,
+                canvas.height / 2 - player.size - 5
+            );
+            
+            // Dibujar borde del mundo visible
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
+            ctx.lineWidth = 2;
+            ctx.strokeRect(
+                -cameraX,
+                -cameraY,
+                worldWidth,
+                worldHeight
+            );
+        }
+        
+        // Bucle principal del juego
+        function gameLoop() {
+            update();
+            draw();
+            requestAnimationFrame(gameLoop);
+        }
+        
+        // Iniciar el juego
+        setupJoystick();
+        resetJoystick();
+        gameLoop();
+        
+        // Prevenir el desplazamiento en dispositivos táctiles
+        document.addEventListener('touchmove', function(e) {
+            if (e.target.closest('#joystick-container') || e.target.closest('#action-btn')) {
+                e.preventDefault();
+            }
+        }, { passive: false });
+    </script>
+</body>
+</html>
